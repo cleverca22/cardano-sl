@@ -11,6 +11,7 @@ module Test.Pos.Block.Logic.Mode
        , HasTestParams (..)
        , TestInitModeContext (..)
        , BlockTestContextTag
+       , PureDBSnapshotsVar(..)
        , BlockTestContext(..)
        , btcSlotId_L
        , BlockTestMode
@@ -23,6 +24,7 @@ module Test.Pos.Block.Logic.Mode
 import           Universum
 
 import           Control.Lens                   (lens, makeClassy, makeLensesWith)
+import qualified Data.Map                       as Map
 import qualified Data.Text.Buildable
 import           Data.Time.Units                (Microsecond, TimeUnit (..))
 import           Ether.Internal                 (HasLens (..))
@@ -45,7 +47,7 @@ import           Pos.Core                       (IsHeader, SlotId, StakeDistribu
                                                  Timestamp (..), makePubKeyAddress,
                                                  mkCoin, unsafeGetCoin)
 import           Pos.Crypto                     (SecretKey, toPublic)
-import           Pos.DB                         (MonadBlockDBGeneric (..),
+import           Pos.DB                         (DBPure, MonadBlockDBGeneric (..),
                                                  MonadBlockDBGenericWrite (..),
                                                  MonadDB (..), MonadDBRead (..),
                                                  MonadGState (..))
@@ -60,6 +62,7 @@ import           Pos.Discovery                  (DiscoveryContextSum (..),
                                                  getPeersSum)
 import           Pos.Generator.Block            (AllSecrets (..), HasAllSecrets (..),
                                                  mkInvSecretsMap)
+import           Pos.Generator.BlockEvent       (SnapshotId)
 import           Pos.Genesis                    (genesisUtxo)
 import qualified Pos.GState                     as GS
 import           Pos.Launcher                   (newInitFuture)
@@ -194,6 +197,10 @@ runTestInitMode ctx = runProduction . flip runReaderT ctx
 -- Main context
 ----------------------------------------------------------------------------
 
+newtype PureDBSnapshotsVar = PureDBSnapshotsVar
+    { getPureDBSnapshotsVar :: IORef (Map SnapshotId DBPure)
+    }
+
 data BlockTestContext = BlockTestContext
     { btcGState            :: !GS.GStateContext
     , btcSystemStart       :: !Timestamp
@@ -210,6 +217,7 @@ data BlockTestContext = BlockTestContext
     , btcReportingContext  :: !ReportingContext
     , btcDiscoveryContext  :: !DiscoveryContextSum
     , btcDelegation        :: !DelegationVar
+    , btcPureDBSnapshots   :: !PureDBSnapshotsVar
     }
 
 makeLensesWith postfixLFields ''BlockTestContext
@@ -259,6 +267,7 @@ initBlockTestContext tp@TestParams {..} callback = do
             let btcParams = tp
             let btcGState = GS.GStateContext {_gscDB = DB.PureDB dbPureVar, ..}
             btcDelegation <- mkDelegationVar @SscGodTossing
+            btcPureDBSnapshots <- PureDBSnapshotsVar <$> newIORef Map.empty
             let btCtx = BlockTestContext {btcSystemStart = systemStart, ..}
             liftIO $ flip runReaderT clockVar $ unEmulation $ callback btCtx
     sudoLiftIO $ runTestInitMode @SscGodTossing initCtx $ initBlockTestContextDo
@@ -374,6 +383,9 @@ instance HasLens DBPureVar BlockTestContext DBPureVar where
         setter _ pdb = DB.PureDB pdb
         pureDBLens = lens getter setter
         realDBInTestsError = error "You are using real db in tests"
+
+instance HasLens PureDBSnapshotsVar BlockTestContext PureDBSnapshotsVar where
+    lensOf = btcPureDBSnapshots_L
 
 instance HasLens LoggerName BlockTestContext LoggerName where
       lensOf = btcLoggerName_L

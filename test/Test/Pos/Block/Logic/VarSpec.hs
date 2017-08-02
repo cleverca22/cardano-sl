@@ -19,13 +19,16 @@ import           Pos.Block.Logic             (verifyAndApplyBlocks, verifyBlocks
 import           Pos.Block.Types             (Blund)
 import           Pos.Core                    (blkSecurityParam)
 import           Pos.DB.Pure                 (dbPureDump)
-import           Pos.Generator.BlockEvent    (BlockEventCount (..),
-                                              BlockEventGenParams (..), genBlockEvents)
+import           Pos.Generator.BlockEvent    (BlockEvent' (..), BlockEventCount (..),
+                                              BlockEventGenParams (..),
+                                              SnapshotOperation (..), genBlockEvents)
 import qualified Pos.GState                  as GS
 import           Pos.Ssc.GodTossing          (SscGodTossing)
 import           Pos.Util.Chrono             (NE, OldestFirst (..))
 
-import           Test.Pos.Block.Logic.Event  (BlockScenarioResult (..), runBlockScenario)
+import           Test.Pos.Block.Logic.Event  (BlockScenarioResult (..),
+                                              DbNotEquivalentToSnapshot (..),
+                                              runBlockScenario)
 import           Test.Pos.Block.Logic.Mode   (BlockProperty, BlockTestMode)
 import           Test.Pos.Block.Logic.Util   (EnableTxPayload (..), InplaceDB (..),
                                               bpGenBlock, bpGenBlocks,
@@ -183,7 +186,12 @@ blockEventSuccessProp = do
             }
     g <- pick $ MkGen $ \qc _ -> qc
     scenario <- lift $ evalRandT (genBlockEvents blockEventGenParams) g
-    verifyBlockScenarioResult =<< lift (runBlockScenario scenario)
+    let
+        scenario' =
+            [BlkEvSnap $ SnapshotSave "start"] ++
+            scenario ++
+            [BlkEvSnap $ SnapshotEq "start"]
+    verifyBlockScenarioResult =<< lift (runBlockScenario scenario')
 
 verifyBlockScenarioResult :: BlockScenarioResult -> BlockProperty ()
 verifyBlockScenarioResult = \case
@@ -191,6 +199,9 @@ verifyBlockScenarioResult = \case
     BlockScenarioUnexpectedFailure e -> stopProperty $
         "Block scenario unexpected failure: " <>
         pretty e
-    BlockScenarioDbChanged dbDiff -> stopProperty $
-        "Block scenario resulted in a change to the blockchain:\n" <>
-        show dbDiff
+    BlockScenarioDbChanged d ->
+        let DbNotEquivalentToSnapshot snapId dbDiff = d in
+        stopProperty $
+            "Block scenario resulted in a change to the blockchain" <>
+            " relative to the " <> show snapId <> " snapshot:\n" <>
+            show dbDiff

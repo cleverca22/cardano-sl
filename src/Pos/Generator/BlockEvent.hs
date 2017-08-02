@@ -18,6 +18,9 @@ module Pos.Generator.BlockEvent
        , BlockEventRollback
        , berInput
        , berOutValid
+       -- * Snapshot management
+       , SnapshotId(..)
+       , SnapshotOperation(..)
        -- * Block event sum
        , BlockEvent'(..)
        , BlockEvent
@@ -117,15 +120,34 @@ instance IsBlockEventFailure (BlockEventRollback' blund) where
 
 type BlockEventRollback = BlockEventRollback' BlundDefault
 
+newtype SnapshotId = SnapshotId Text
+    deriving (Eq, Ord, IsString)
+
+instance Show SnapshotId where
+    showsPrec p (SnapshotId s) = Prelude.showsPrec p s
+
+data SnapshotOperation
+    = SnapshotSave SnapshotId {- Save the current db state into a snapshot
+    under the specified identifier. Overwrites an existing snapshot with the
+    same name or creates a new one. -}
+    | SnapshotLoad SnapshotId {- Set the current db state to a state saved in
+    a snapshot earlier. -}
+    | SnapshotEq SnapshotId {- Compare the current db state to a state saved
+    in a snapshot earlier, checking for equivalence. If logical discrepancies
+    are found, throw an error. -}
+    deriving (Show)
+
 data BlockEvent' blund
     = BlkEvApply (BlockEventApply' blund)
     | BlkEvRollback (BlockEventRollback' blund)
+    | BlkEvSnap SnapshotOperation
     deriving (Functor, Foldable)
 
 instance IsBlockEventFailure (BlockEvent' blund) where
     isBlockEventFailure = \case
         BlkEvApply    a -> isBlockEventFailure a
         BlkEvRollback a -> isBlockEventFailure a
+        BlkEvSnap     _ -> False
 
 type BlockEvent = BlockEvent' BlundDefault
 
