@@ -26,7 +26,7 @@ import           Pos.Block.Types           (Blund)
 import           Pos.Core                  (HeaderHash, getEpochOrSlot, unEpochOrSlot)
 import           Pos.DB.Pure               (DBPureDiff, MonadPureDB, dbPureDiff,
                                             dbPureDump, dbPureReset)
-import           Pos.Generator.BlockEvent  (BlockEvent, BlockEvent' (..),
+import           Pos.Generator.BlockEvent  (BlockEvent, BlockEvent' (..), BlockScenario'(..), BlockScenario,
                                             IsBlockEventFailure (..), SnapshotId,
                                             SnapshotOperation (..), beaInput, berInput)
 import           Pos.Ssc.GodTossing.Type   (SscGodTossing)
@@ -119,13 +119,14 @@ data BlockScenarioResult
 -- an expected failure or with a rollback to the initial state.
 runBlockScenario ::
        (BlockLrcMode SscGodTossing ctx m, MonadPureDB ctx m, ctx ~ BlockTestContext)
-    => [BlockEvent]
+    => BlockScenario
     -> m BlockScenarioResult
-runBlockScenario [] = return BlockScenarioFinishedOk
-runBlockScenario (ev:evs) = do
+runBlockScenario (BlockScenario []) =
+    return BlockScenarioFinishedOk
+runBlockScenario (BlockScenario (ev:evs)) = do
     runBlockEvent ev >>= \case
         BlockEventSuccess ->
-            runBlockScenario evs
+            runBlockScenario (BlockScenario evs)
         BlockEventFailure (IsExpected isExp) e ->
             return $ if isExp
                 then BlockScenarioFinishedOk

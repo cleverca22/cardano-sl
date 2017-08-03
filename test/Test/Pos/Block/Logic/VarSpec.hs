@@ -21,7 +21,7 @@ import           Pos.Core                    (blkSecurityParam)
 import           Pos.DB.Pure                 (dbPureDump)
 import           Pos.Generator.BlockEvent    (BlockEvent' (..), BlockEventCount (..),
                                               BlockEventGenParams (..),
-                                              SnapshotOperation (..), genBlockEvents)
+                                              SnapshotOperation (..), genBlockScenario, _BlockScenario)
 import qualified Pos.GState                  as GS
 import           Pos.Ssc.GodTossing          (SscGodTossing)
 import           Pos.Util.Chrono             (NE, OldestFirst (..))
@@ -185,12 +185,13 @@ blockEventSuccessProp = do
             , _begpFailureChance = 0
             }
     g <- pick $ MkGen $ \qc _ -> qc
-    scenario <- lift $ evalRandT (genBlockEvents blockEventGenParams) g
+    scenario <- lift $ evalRandT (genBlockScenario blockEventGenParams) g
     let
-        scenario' =
+        updateScenario = over _BlockScenario $ \sc ->
             [BlkEvSnap $ SnapshotSave "start"] ++
-            scenario ++
+            sc ++
             [BlkEvSnap $ SnapshotEq "start"]
+        scenario' = updateScenario scenario
     verifyBlockScenarioResult =<< lift (runBlockScenario scenario')
 
 verifyBlockScenarioResult :: BlockScenarioResult -> BlockProperty ()

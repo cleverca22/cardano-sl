@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveFoldable      #-}
 {-# LANGUAGE DeriveFunctor       #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RankNTypes          #-}
 
 module Pos.Generator.BlockEvent
        (
@@ -24,6 +25,10 @@ module Pos.Generator.BlockEvent
        -- * Block event sum
        , BlockEvent'(..)
        , BlockEvent
+       -- * Block scenario
+       , BlockScenario'(..)
+       , BlockScenario
+       , _BlockScenario
        -- * Generation
        , BlockEventCount(..)
        , Chance(..)
@@ -33,20 +38,22 @@ module Pos.Generator.BlockEvent
        , begpRollbackChance
        , begpFailureChance
        , begpSecrets
-       , genBlockEvents
+       , genBlockScenario
        ) where
 
 import           Universum
 
-import           Control.Lens                (folded, makeLenses)
+import           Control.Lens                (folded, makeLenses, makePrisms, foldMapOf)
 import           Control.Monad.Random.Strict (MonadRandom (..), RandT, Random (..),
-                                              RandomGen, runRand, uniform, weighted)
+                                              RandomGen, mapRandT, runRand, uniform,
+                                              weighted)
 import           Control.Monad.State         (MonadState (..))
 import           Data.Coerce                 (coerce)
 import           Data.Default                (def)
-import           Data.List                   ((!!))
 import qualified Data.List.NonEmpty          as NE
+import qualified Data.Map                    as Map
 import qualified Data.Semigroup              as Smg
+import qualified Data.Sequence               as Seq
 import qualified Data.Text.Buildable
 import           Formatting                  (bprint, build, formatToString, int, (%))
 import qualified Prelude
@@ -54,14 +61,135 @@ import qualified Prelude
 import           Pos.Block.Types             (Blund)
 import           Pos.Core                    (BlockCount (..))
 import           Pos.Generator.Block         (AllSecrets, BlockGenParams (..),
-                                              MonadBlockGen, genBlocks)
+                                              MonadBlockGen, TxGenParams, genBlocks)
+import           Pos.GState.Context          (withClonedGState)
 import           Pos.Ssc.GodTossing.Type     (SscGodTossing)
 import           Pos.Util.Chrono             (NE, NewestFirst (..), OldestFirst (..),
                                               toNewestFirst, toOldestFirst, _NewestFirst,
                                               _OldestFirst)
-import           Pos.Util.Util               (minMaxOf)
 
 type BlundDefault = Blund SscGodTossing
+
+----------------------------------------------------------------------------
+-- Blockchain tree
+----------------------------------------------------------------------------
+
+newtype PathSegment = PathSegment Text
+    deriving (Eq, Ord, IsString)
+
+instance Show PathSegment where
+    showsPrec p (PathSegment s) = Prelude.showsPrec p s
+
+-- an empty path does not point at any block
+newtype Path = Path (Seq PathSegment)
+    deriving (Eq, Ord, Monoid)
+
+type BlockchainForest a = Map PathSegment (BlockchainTree a)
+
+data BlockchainTree a = BlockchainTree a (BlockchainForest a)
+  deriving (Show, Functor, Foldable)
+
+data BlockDesc
+    = BlockDescDefault -- a random valid block
+    | BlockDescCustom TxGenParams -- a random valid block with custom gen params
+    deriving (Show)
+
+-- Precondition: input paths are non-empty
+buildBlockchainForest :: a -> Map Path a -> BlockchainForest a
+buildBlockchainForest defElem elements =
+    fmap (buildBlockchainTree defElem) . Map.fromListWith Map.union $ do
+        (Path path, a) <- Map.toList elements
+        case Seq.viewl path of
+            Seq.EmptyL -> error
+                "buildBlockchainForest: precondition violated, empty path"
+            pathSegment Seq.:< path' ->
+                [(pathSegment, Map.singleton (Path path') a)]
+
+buildBlockchainTree :: a -> Map Path a -> BlockchainTree a
+buildBlockchainTree defElem elements =
+    let
+        topPath = Path Seq.empty
+        topElement = Map.findWithDefault defElem topPath elements
+        -- 'otherElements' has its empty path deleted (if there was one in the
+        -- first place), so it satisfies the precondition of 'buildBlockchainForest'
+        otherElements = Map.delete topPath elements
+    in
+        BlockchainTree topElement (buildBlockchainForest defElem otherElements)
+
+-- Inverse to 'buildBlockchainForest'.
+flattenBlockchainForest' :: BlockchainForest a -> Map Path a
+flattenBlockchainForest' =
+    Map.fromList . flattenBlockchainForest (Path Seq.empty)
+
+flattenBlockchainForest :: Path -> BlockchainForest a -> [(Path, a)]
+flattenBlockchainForest (Path prePath) forest = do
+    (pathSegment, subtree) <- Map.toList forest
+    flattenBlockchainTree (Path $ prePath Seq.|> pathSegment) subtree
+
+flattenBlockchainTree :: Path -> BlockchainTree a -> [(Path, a)]
+flattenBlockchainTree prePath tree = do
+    let BlockchainTree a forest = tree
+    (prePath, a) : flattenBlockchainForest prePath forest
+
+type MonadGenBlockchain ctx m =
+    ( MonadBlockGen ctx m
+    , MonadThrow m )
+
+genBlocksInForest ::
+       (MonadGenBlockchain ctx m, RandomGen g)
+    => AllSecrets
+    -> BlockchainForest BlockDesc
+    -> RandT g m (BlockchainForest BlundDefault)
+genBlocksInForest secrets =
+    traverse $ mapRandT withClonedGState . genBlocksInTree secrets
+
+genBlocksInTree ::
+       (MonadGenBlockchain ctx m, RandomGen g)
+    => AllSecrets
+    -> BlockchainTree BlockDesc
+    -> RandT g m (BlockchainTree BlundDefault)
+genBlocksInTree secrets blockchainTree = do
+    let
+        BlockchainTree blockDesc blockchainForest = blockchainTree
+        txGenParams = case blockDesc of
+            BlockDescDefault  -> def
+            BlockDescCustom p -> p
+        blockGenParams = BlockGenParams
+            { _bgpSecrets     = secrets
+            , _bgpBlockCount  = 1
+            , _bgpTxGenParams = txGenParams
+            , _bgpInplaceDB   = True
+            }
+    -- Partial pattern-matching is safe because we specify
+    -- blockCount = 1 in the generation parameters.
+    OldestFirst [block] <- genBlocks blockGenParams
+    forestBlocks <- genBlocksInForest secrets blockchainForest
+    return $ BlockchainTree block forestBlocks
+
+-- Precondition: paths in the structure are non-empty.
+genBlocksInStructure ::
+       ( MonadGenBlockchain ctx m
+       , Functor t, Foldable t
+       , RandomGen g )
+    => AllSecrets
+    -> Map Path BlockDesc
+    -> t Path
+    -> RandT g m (t BlundDefault)
+genBlocksInStructure secrets annotations s = do
+    let
+        getAnnotation path =
+            Map.findWithDefault BlockDescDefault path annotations
+        paths = foldMapOf folded
+            (\path -> Map.singleton path (getAnnotation path))
+            s
+        descForest = buildBlockchainForest BlockDescDefault paths
+    blockForest <- genBlocksInForest secrets descForest
+    let
+        getBlock path = Map.findWithDefault
+            (error "genBlocksInStructure: impossible happened")
+            path
+            (flattenBlockchainForest' blockForest)
+    return $ fmap getBlock s
 
 ----------------------------------------------------------------------------
 -- Block event types
@@ -151,18 +279,16 @@ instance IsBlockEventFailure (BlockEvent' blund) where
 
 type BlockEvent = BlockEvent' BlundDefault
 
+newtype BlockScenario' blund = BlockScenario [BlockEvent' blund]
+    deriving (Functor, Foldable)
+
+type BlockScenario = BlockScenario' BlundDefault
+
+makePrisms ''BlockScenario'
+
 ----------------------------------------------------------------------------
 -- Block event generation
 ----------------------------------------------------------------------------
-
-{- |
-  Block indices. They're neither 0-based nor 1-based, they can start from any
-  index (even negative). Therefore it's necessary to adjust them before using
-  for lookup in a data structure.
--}
-newtype BlockIndex = BlockIndex {getBlockIndex :: Int}
-    deriving (Eq, Ord, Num, Real, Integral, Enum, Read, Show,
-              Buildable, Generic, Typeable, NFData, Hashable, Random)
 
 newtype BlockEventCount = BlockEventCount {getBlockEventCount :: Word64}
     deriving (Eq, Ord, Num, Real, Integral, Enum, Read, Show,
@@ -214,63 +340,29 @@ instance Buildable BlockEventGenParams where
 instance Show BlockEventGenParams where
     show = formatToString build
 
-{- |
-  Return the range of block indices as a half-open interval (closed on the
-  lower bound, open on the upper bound). For example, for block indices
-  @[0, -2, 4, 7]@ the range is a tuple @(-2, 8)@. The reasons for the interval
-  to be half-open:
-    * it's possible to encode an empty range as @(k, k)@
-    * to compute the amount of elements, one can use simple subtraction
--}
-
-getBlockIndexRange ::
-       [BlockEvent' BlockIndex]
-    -> (BlockIndex, BlockIndex)
-getBlockIndexRange =
-    maybe (0, 0) (\(lower, upper) -> (lower, upper+1)) . minMaxOf (folded.folded)
-
 -- | Generate a random sequence of block events. The final event is either an
 -- expected failure or a rollback of the entire chain to the initial (empty)
 -- state. There's no forking at the moment.
-genBlockEvents ::
+genBlockScenario ::
        (MonadBlockGen ctx m, RandomGen g)
     => BlockEventGenParams
-    -> RandT g m [BlockEvent]
-genBlockEvents begp = do
+    -> RandT g m BlockScenario
+genBlockScenario begp = do
     preBlockEvents <- genBlockEvents' begp
-    let
-        (blockIndexStart, blockIndexEnd) =
-            getBlockIndexRange preBlockEvents
-        blockCount = BlockCount $
-            fromIntegral (blockIndexEnd - blockIndexStart)
-    blocks <- genBlocks $ BlockGenParams
-        { _bgpSecrets     = begp ^. begpSecrets
-        , _bgpBlockCount  = blockCount
-        , _bgpTxGenParams = def -- should be better, right?
-        , _bgpInplaceDB   = False
-        }
-    let
-        toZeroBased :: BlockIndex -> Int
-        toZeroBased i =
-            getBlockIndex i - getBlockIndex blockIndexStart
-        getBlock :: BlockIndex -> BlundDefault
-        getBlock i =
-            -- Indexing is safe here because by construction we have enough
-            -- blocks for the lookup to succeed.
-            getOldestFirst blocks !! toZeroBased i
-    return $ fmap getBlock <$> preBlockEvents
+    genBlocksInStructure (begp ^. begpSecrets) Map.empty $
+        BlockScenario preBlockEvents
 
 data GenBlockEventState
     = GbesStartingState
-    | GbesBlockchain (OldestFirst NE BlockIndex)
+    | GbesBlockchain (OldestFirst NE Path)
     | GbesExpectedFailure
 
--- | A version of 'genBlockEvents' that generates event with block indices
+-- | A version of 'genBlockEvents' that generates event with block paths
 -- instead of actual blocks.
 genBlockEvents' ::
        (Monad m, RandomGen g)
     => BlockEventGenParams
-    -> RandT g m [BlockEvent' BlockIndex]
+    -> RandT g m [BlockEvent' Path]
 genBlockEvents' begp =
     flip evalStateT GbesStartingState $ do
         events <- replicateWhileM
@@ -297,8 +389,7 @@ replicateWhileM n m = go n
                  Just a  -> (a:) <$> go (k-1)
 
 data RollbackFailureType
-    = RftRollbackExcess
-    | RftRollbackDrop
+    = RftRollbackDrop
     deriving (Enum, Bounded)
 
 instance Random RollbackFailureType where
@@ -320,7 +411,7 @@ newtype IsRollback = IsRollback Bool
 genBlockEvent ::
        (Monad m, RandomGen g)
     => BlockEventGenParams
-    -> StateT GenBlockEventState (RandT g m) (Maybe (BlockEvent' BlockIndex))
+    -> StateT GenBlockEventState (RandT g m) (Maybe (BlockEvent' Path))
 genBlockEvent begp = do
     gbes <- get
     failure <- lift $ IsFailure <$> byChance (begp ^. begpFailureChance)
@@ -334,17 +425,17 @@ genBlockEvent begp = do
             genBlockInBlockchain blockchain failure rollback
     put gbes' $> mBlockEvent
   where
-    genBlockIndices blockIndexStart = do
+    genBlockIndices pathStart = do
         len <- getRandomR (1, fromIntegral $ begp ^. begpBlockCountMax)
         -- 'NE.fromList' assumes that 'len >= 1', which holds because we require
         -- 'begpBlockCountMax >= 1'.
-        return $ OldestFirst . NE.fromList . take len $ [blockIndexStart..]
-
+        return $ OldestFirst . NE.fromList . take len $
+            iterate (<> Path (Seq.singleton "next")) pathStart
     -- Fail with rollback. In the starting state it's easy,
     -- because any rollback will fail when we don't have any
     -- blocks yet.
     genBlockStartingState (IsFailure True) (IsRollback True) = do
-        blockIndices <- genBlockIndices 0
+        blockIndices <- genBlockIndices (Path (Seq.singleton "first"))
         let
             ev = BlkEvRollback $ BlockEventRollback
                 { _berInput    = toNewestFirst blockIndices
@@ -356,9 +447,9 @@ genBlockEvent begp = do
     -- the only way to do this is to generate a sequence of blocks
     -- invalid by itself.
     genBlockStartingState (IsFailure True) (IsRollback False) = do
-        blockIndices <- genBlockIndices 1
+        blockIndices <- genBlockIndices (Path (Seq.fromList ["first", "next"]))
         let
-            blkZeroth = BlockIndex 0 :| []
+            blkZeroth = Path (Seq.singleton "first") :| []
             blockIndices' =
                 -- Those block indices are broken by construction
                 -- because we append the 0-th block to the end.
@@ -378,7 +469,7 @@ genBlockEvent begp = do
     -- there are no blocks, so we will generate a block apply
     -- event in both cases.
     genBlockStartingState (IsFailure False) (IsRollback _) = do
-        blockIndices <- genBlockIndices 0
+        blockIndices <- genBlockIndices (Path (Seq.singleton "first"))
         let
             ev = BlkEvApply $ BlockEventApply
                 { _beaInput    = blockIndices
@@ -391,32 +482,18 @@ genBlockEvent begp = do
     genBlockInBlockchain blockchain (IsFailure True) (IsRollback True) = do
         rft <- getRandom
         case rft of
-            RftRollbackExcess -> do
-                -- Attempt to rollback the entire blockchain and then
-                -- some more. Example: suppose we have blockchain [0, 1, 2],
-                -- we may generate rollback [2, 1, 0, -1], rollback of the
-                -- -1-st block will be unsuccessful.
-                let
-                    blockIndices = blockchain & over _OldestFirst
-                        (\(x :| xs) -> x-1 :| x : xs)
-                    ev = BlkEvRollback $ BlockEventRollback
-                        { _berInput    = toNewestFirst blockIndices
-                        , _berOutValid = BlockRollbackFailure
-                        }
-                    gbes = GbesExpectedFailure
-                return (Just ev, gbes)
             RftRollbackDrop -> do
                 -- Attempt to rollback a part of the blockchain which
                 -- is not its prefix (drop some blocks from the tip).
                 -- The corner case here is that we may have a
                 -- one-element blockchain: then we ensure failure by
-                -- asking to rollback more blocks.
+                -- asking to rollback something entirely unrelated.
                 case blockchain of
-                    OldestFirst (x :| []) -> do -- oops, the corner case
+                    OldestFirst (_ :| []) -> do -- oops, the corner case
                         let
                             gbes = GbesExpectedFailure
                             ev = BlkEvRollback $ BlockEventRollback
-                                { _berInput    = NewestFirst $ x :| [x-1]
+                                { _berInput    = NewestFirst $ Path (Seq.singleton "unrelated") :| []
                                 , _berOutValid = BlockRollbackFailure
                                 }
                         return (Just ev, gbes)
@@ -448,7 +525,7 @@ genBlockEvent begp = do
             AftApplyBad -> do
                 -- Attempt to apply an invalid sequence of blocks.
                 let tip = NE.last (getOldestFirst blockchain)
-                blockIndices <- genBlockIndices (tip + 1)
+                blockIndices <- genBlockIndices (tip <> Path (Seq.singleton "next"))
                 let
                     blockIndices' =
                         -- Those block indices are broken by construction
@@ -470,7 +547,7 @@ genBlockEvent begp = do
                     tip  = NE.last (getOldestFirst blockchain)
                     -- The amount of blocks to skip. One is enough.
                     skip = 1
-                blockIndices <- genBlockIndices (tip + 1 + skip)
+                blockIndices <- genBlockIndices (tip <> Path (Seq.replicate (1 + skip) "next"))
                 let
                     ev = BlkEvApply $ BlockEventApply
                         { _beaInput    = blockIndices
@@ -497,7 +574,7 @@ genBlockEvent begp = do
     -- Success without rollback (with apply).
     genBlockInBlockchain blockchain (IsFailure False) (IsRollback False) = do
         let tip = NE.last (getOldestFirst blockchain)
-        blockIndices <- genBlockIndices (tip + 1)
+        blockIndices <- genBlockIndices (tip <> Path (Seq.singleton "next"))
         let
             ev = BlkEvApply $ BlockEventApply
                 { _beaInput = blockIndices
