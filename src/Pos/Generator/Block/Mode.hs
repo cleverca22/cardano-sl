@@ -21,6 +21,7 @@ import           Universum
 import           Control.Lens.TH             (makeLensesWith)
 import           Control.Monad.Random.Strict (RandT)
 import           Control.Monad.Trans.Control (MonadBaseControl)
+import qualified Crypto.Random               as Rand
 import qualified Data.Map                    as M
 import           Mockable                    (Async, Catch, Concurrently, CurrentTime,
                                               Delay, Mockables, Promise, Throw)
@@ -65,7 +66,7 @@ import           Pos.Txp                     (GenericTxpLocalData, TxIn (..), Tx
                                               TxpHolderTag, TxpMetrics, ignoreTxpMetrics,
                                               mkTxpLocalData, txpGlobalSettings)
 import           Pos.Txp.Toil.Types          (GenesisStakeholders (..), GenesisUtxo (..),
-                                              mkGenesisTxpContext, gtcStakeholders)
+                                              gtcStakeholders, mkGenesisTxpContext)
 import           Pos.Update.Context          (UpdateContext, mkUpdateContext)
 import           Pos.Util                    (HasLens (..), Some, postfixLFields)
 import           Pos.WorkMode.Class          (TxpExtra_TMP)
@@ -100,6 +101,8 @@ type MonadBlockGen ctx m
        , MonadReader ctx m
        , GS.HasGStateContext ctx
        , HasSlottingVar ctx
+       -- 'MonadRandom' for crypto.
+       , Rand.MonadRandom m
        )
 
 ----------------------------------------------------------------------------

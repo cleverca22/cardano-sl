@@ -33,6 +33,7 @@ import           Universum
 
 import           Control.Monad.Except            (MonadError (throwError))
 import           Control.Monad.State             (get, put)
+import           Crypto.Random                   (MonadRandom)
 import           Data.Containers                 (ContainerKey, SetContainer (notMember))
 import qualified Data.HashMap.Strict             as HM
 import qualified Data.HashSet                    as HS
@@ -323,7 +324,8 @@ computeSharesDistr richmen =
 --   * commitment is generated exactly for all participants with correct
 --     proportions (according to 'computeSharesDistr')
 checkCommitmentsPayload
-    :: (MonadToss m, MonadTossEnv m, MonadError TossVerFailure m)
+    :: (MonadToss m, MonadTossEnv m, MonadError TossVerFailure m,
+        MonadRandom m)
     => EpochIndex
     -> CommitmentsMap
     -> m ()
@@ -397,7 +399,8 @@ checkCertificatesPayload epoch certs = do
         (HM.toList certs)
 
 checkPayload
-    :: (MonadToss m, MonadTossEnv m, MonadError TossVerFailure m)
+    :: (MonadToss m, MonadTossEnv m, MonadError TossVerFailure m,
+        MonadRandom m)
     => EpochIndex
     -> GtPayload
     -> m ()
