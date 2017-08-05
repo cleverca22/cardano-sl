@@ -28,15 +28,14 @@ import           Data.Time.Units                   (Microsecond, Millisecond,
 import           System.Random                     (Random)
 import           Test.QuickCheck                   (Arbitrary (..), Gen, NonNegative (..),
                                                     choose, oneof, scale, shrinkIntegral,
-                                                    suchThat, vector, vectorOf, sized)
+                                                    sized, suchThat, vector, vectorOf)
 import           Test.QuickCheck.Arbitrary.Generic (genericArbitrary, genericShrink)
 import           Test.QuickCheck.Instances         ()
 
 import           Pos.Arbitrary.Crypto              ()
 import           Pos.Binary.Class                  (AsBinary, FixedSizeInt (..),
-                                                    SignedVarInt (..),
-                                                    UnsignedVarInt (..),
-                                                    TinyVarInt(..))
+                                                    SignedVarInt (..), TinyVarInt (..),
+                                                    UnsignedVarInt (..))
 import           Pos.Binary.Core                   ()
 import           Pos.Binary.Crypto                 ()
 import           Pos.Core.Address                  (makePubKeyAddress, makeRedeemAddress,
@@ -46,8 +45,8 @@ import           Pos.Core.Constants                (epochSlots, sharedSeedLength
 import qualified Pos.Core.Fee                      as Fee
 import qualified Pos.Core.Genesis                  as G
 import qualified Pos.Core.Types                    as Types
-import           Pos.Data.Attributes               (Attributes (..), UnparsedFields(..))
 import           Pos.Crypto                        (DecShare, PublicKey)
+import           Pos.Data.Attributes               (Attributes (..), UnparsedFields (..))
 import           Pos.Util.Arbitrary                (makeSmall, nonrepeating)
 import           Pos.Util.Util                     (leftToPanic)
 
