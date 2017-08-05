@@ -46,8 +46,8 @@ import           Pos.Core.Constants                (epochSlots, sharedSeedLength
 import qualified Pos.Core.Fee                      as Fee
 import qualified Pos.Core.Genesis                  as G
 import qualified Pos.Core.Types                    as Types
-import           Pos.Crypto                        (PublicKey, Share)
 import           Pos.Data.Attributes               (Attributes (..), UnparsedFields(..))
+import           Pos.Crypto                        (DecShare, PublicKey)
 import           Pos.Util.Arbitrary                (makeSmall, nonrepeating)
 import           Pos.Util.Util                     (leftToPanic)
 
@@ -485,7 +485,7 @@ deriving instance Arbitrary Types.Timestamp
 deriving instance Arbitrary Types.TimeDiff
 
 newtype SmallHashMap =
-    SmallHashMap (HashMap PublicKey (HashMap PublicKey (AsBinary Share)))
+    SmallHashMap (HashMap PublicKey (HashMap PublicKey (AsBinary DecShare)))
     deriving (Show, Generic)
 
 instance Arbitrary SmallHashMap where
