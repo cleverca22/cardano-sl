@@ -13,6 +13,7 @@ import           Unsafe                    (unsafeHead, unsafeTail)
 
 import           Control.Lens              (At (at), Index, _Right)
 import qualified Data.HashMap.Strict       as HM
+import           Data.List                 (last)
 import           Formatting                (sformat, (%))
 import           Serokell.Util             (enumerate, subList)
 import           Test.Hspec                (Spec, describe)
@@ -26,7 +27,9 @@ import qualified Pos.Constants             as Const
 import           Pos.Core                  (Address, Coin, EpochIndex, StakeholderId,
                                             addressHash, applyCoinPortionUp, coinF,
                                             divCoin, makePubKeyAddress, mkCoin,
-                                            unsafeAddCoin, unsafeMulCoin, unsafeSubCoin)
+                                            unsafeAddCoin, unsafeGetCoin,
+                                            unsafeIntegerToCoin, unsafeMulCoin,
+                                            unsafeSubCoin)
 import           Pos.Crypto                (SecretKey, toPublic)
 import           Pos.Generator.Block       (AllSecrets (..), HasAllSecrets (asSecretKeys),
                                             mkInvSecretsMap)
@@ -82,9 +85,11 @@ genTestParams = do
     secretKeys <- nonrepeating stakeholdersNum
     let invSecretsMap = mkInvSecretsMap secretKeys
     let _tpAllSecrets = AllSecrets invSecretsMap
-    -- Total stake inside one group.
+    -- Total stake inside one group. Maximum 10^10, minimum 10^8, but
+    -- is always divisible by 10^7.
     totalStakeGroup <-
-        (`divCoin` groupsNumber) . max minTotalStake <$> arbitrary
+        (`unsafeMulCoin` 10000000) . (`divCoin` groupsNumber) . mkCoin <$>
+        choose (10, 1000)
     -- It's essential to use 'toList invSecretsMap' instead of
     -- 'secretKeys' here, because we rely on the order further. Later
     -- we can add ability to extend 'TestParams' or context.
@@ -97,7 +102,6 @@ genTestParams = do
     return TestParams {..}
   where
     groupsNumber = length allRichmenComponents
-    minTotalStake = mkCoin 100000
     genAddressesAndDistrs ::
            Coin
         -> [SecretKey]
@@ -110,18 +114,19 @@ genTestParams = do
         let totalStake = totalStakeGroup `unsafeMulCoin` groupsNumber
         let thresholdCoin =
                 Lrc.rcInitialThreshold proxy `applyCoinPortionUp` totalStake
-        let poorStake = thresholdCoin `unsafeSubCoin` mkCoin 1
-        -- Let's add small stake to two richmen just for fun.
-        let genSmallRichStake =
-                unsafeAddCoin thresholdCoin . mkCoin <$> choose (0, 10)
-        richStake1 <- genSmallRichStake
-        richStake2 <- genSmallRichStake
-        let richStake3 =
-                foldl'
-                    unsafeSubCoin
-                    totalStakeGroup
-                    [poorStake, richStake1, richStake2]
+        let poorStake =
+                unsafeIntegerToCoin $ last $
+                takeWhile (< (fromIntegral $ unsafeGetCoin thresholdCoin)) $ iterate (*2) 10
+        let richStake1 =
+                unsafeHead $ dropWhile (<= thresholdCoin) $
+                iterate (`unsafeAddCoin` poorStake) poorStake
+        let genRichStake prev =
+                unsafeMulCoin prev <$> choose (2::Int, 5)
+        richStake2 <- genRichStake richStake1
+        richStake3 <- genRichStake richStake2
         let stakes = [poorStake, richStake1, richStake2, richStake3]
+        !() <- traceShowM thresholdCoin
+        !() <- traceShowM stakes
         case richStake3 >= thresholdCoin of
             True  -> return (addresses, CustomStakes stakes)
             False -> error "threshold is too big, tests are not ready for it"
