@@ -30,8 +30,9 @@ import           Pos.Block.Logic.Util      (lcaWithMainChain)
 import           Pos.Block.Pure            (VerifyHeaderParams (..), verifyHeader,
                                             verifyHeaders)
 import           Pos.Constants             (genesisHash, recoveryHeadersMessage)
-import           Pos.Core                  (BlockCount, EpochOrSlot (..), HeaderHash,
-                                            SlotId (..), difficultyL, epochOrSlotG,
+import           Pos.Core                  (BlockCount, EpochOrSlot (..),
+                                            HasCoreConstants, HeaderHash, SlotId (..),
+                                            blkSecurityParamM, difficultyL, epochOrSlotG,
                                             getChainDifficulty, getEpochOrSlot,
                                             headerHash, headerHashG, headerSlotL,
                                             prevBlockL)
@@ -146,11 +147,13 @@ data ClassifyHeadersRes ssc
 --    (i.e. if 'needRecovery' is false) but the newest header in the list isn't
 --    from the current slot. See CSL-177.
 classifyHeaders ::
-       forall ssc m.
+       forall ssc ctx m.
        ( DB.MonadBlockDB ssc m
        , MonadSlots m
        , MonadCatch m
        , WithLogger m
+       , MonadReader ctx m
+       , HasCoreConstants ctx
        )
     => Bool -- recovery in progress?
     -> NewestFirst NE (BlockHeader ssc)
@@ -274,8 +277,8 @@ getHeadersFromManyTo checkpoints startM = do
 -- it returns not more than 'blkSecurityParam' blocks distributed
 -- exponentially base 2 relatively to the depth in the blockchain.
 getHeadersOlderExp
-    :: forall ssc m.
-       (MonadDBRead m, SscHelpersClass ssc)
+    :: forall ssc ctx m.
+       (MonadDBRead m, SscHelpersClass ssc, MonadReader ctx m, HasCoreConstants ctx)
     => Maybe HeaderHash -> m (OldestFirst NE HeaderHash)
 getHeadersOlderExp upto = do
     tip <- GS.getTip
