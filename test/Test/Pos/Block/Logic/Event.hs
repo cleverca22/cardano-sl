@@ -26,9 +26,10 @@ import           Pos.Block.Types           (Blund)
 import           Pos.Core                  (HeaderHash, getEpochOrSlot, unEpochOrSlot)
 import           Pos.DB.Pure               (DBPureDiff, MonadPureDB, dbPureDiff,
                                             dbPureDump, dbPureReset)
-import           Pos.Generator.BlockEvent  (BlockEvent, BlockEvent' (..), BlockScenario'(..), BlockScenario,
-                                            IsBlockEventFailure (..), SnapshotId,
-                                            SnapshotOperation (..), beaInput, berInput)
+import           Pos.Generator.BlockEvent  (BlockEvent, BlockEvent' (..), BlockScenario,
+                                            BlockScenario' (..), IsBlockEventFailure (..),
+                                            SnapshotId, SnapshotOperation (..), beaInput,
+                                            berInput)
 import           Pos.Ssc.GodTossing.Type   (SscGodTossing)
 import           Pos.Util.Chrono           (NE, OldestFirst, getOldestFirst)
 import           Pos.Util.Util             (eitherToThrow, lensOf)

@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveFoldable      #-}
 {-# LANGUAGE DeriveFunctor       #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Pos.Generator.BlockEvent
        (
@@ -22,6 +22,8 @@ module Pos.Generator.BlockEvent
        -- * Snapshot management
        , SnapshotId(..)
        , SnapshotOperation(..)
+       , enrichWithSnapshotChecking
+       , CheckCount(..)
        -- * Block event sum
        , BlockEvent'(..)
        , BlockEvent
@@ -29,9 +31,18 @@ module Pos.Generator.BlockEvent
        , BlockScenario'(..)
        , BlockScenario
        , _BlockScenario
-       -- * Generation
-       , BlockEventCount(..)
+       -- * Path
+       , PathSegment(..)
+       , Path(..)
+       , pathSequence
+       -- * Chance
        , Chance(..)
+       , byChance
+       -- * Block description
+       , BlockDesc(..)
+       -- * Generation
+       , MonadGenBlockchain
+       , BlockEventCount(..)
        , BlockEventGenParams(..)
        , begpBlockCountMax
        , begpBlockEventCount
@@ -39,32 +50,37 @@ module Pos.Generator.BlockEvent
        , begpFailureChance
        , begpSecrets
        , genBlockScenario
+       , genBlocksInStructure
        ) where
 
 import           Universum
 
-import           Control.Lens                (folded, makeLenses, makePrisms, foldMapOf)
+import           Control.Lens                (foldMapOf, folded, makeLenses, makePrisms)
 import           Control.Monad.Random.Strict (MonadRandom (..), RandT, Random (..),
                                               RandomGen, mapRandT, runRand, uniform,
                                               weighted)
 import           Control.Monad.State         (MonadState (..))
-import           Data.Coerce                 (coerce)
 import           Data.Default                (def)
 import qualified Data.List.NonEmpty          as NE
 import qualified Data.Map                    as Map
 import qualified Data.Semigroup              as Smg
 import qualified Data.Sequence               as Seq
 import qualified Data.Text.Buildable
-import           Formatting                  (bprint, build, formatToString, int, (%))
+import           Formatting                  (bprint, build, formatToString, int, sformat,
+                                              shown, (%))
 import qualified Prelude
+import           Serokell.Util               (listJson)
 
 import           Pos.Block.Types             (Blund)
-import           Pos.Core                    (BlockCount (..))
+import           Pos.Core                    (BlockCount (..), HeaderHash, headerHash,
+                                              prevBlockL)
+import           Pos.Crypto.Hashing          (hashHexF)
 import           Pos.Generator.Block         (AllSecrets, BlockGenParams (..),
                                               MonadBlockGen, TxGenParams, genBlocks)
 import           Pos.GState.Context          (withClonedGState)
 import           Pos.Ssc.GodTossing.Type     (SscGodTossing)
 import           Pos.Util.Chrono             (NE, NewestFirst (..), OldestFirst (..),
+                                              nonEmptyOldestFirst, splitAtNewestFirst,
                                               toNewestFirst, toOldestFirst, _NewestFirst,
                                               _OldestFirst)
 
@@ -74,15 +90,35 @@ type BlundDefault = Blund SscGodTossing
 -- Blockchain tree
 ----------------------------------------------------------------------------
 
+-- NB. not a monoid, so the user can be sure that `(<>)` acts as expected
+-- on string literals for paths (not path segments).
 newtype PathSegment = PathSegment Text
     deriving (Eq, Ord, IsString)
 
 instance Show PathSegment where
     showsPrec p (PathSegment s) = Prelude.showsPrec p s
 
--- an empty path does not point at any block
+-- | Construct a path using string literals and monoidal/semigroupoidal
+--   operations: @"first" <> "next"@, @stimes 15 "next"@.
+--   An empty path does not point at any block, don't use it on its own! (but
+--   it's a valid 'mempty')
 newtype Path = Path (Seq PathSegment)
-    deriving (Eq, Ord, Monoid)
+    deriving (Eq, Ord, Semigroup, Monoid)
+
+instance IsString Path where
+    fromString = Path . Seq.singleton . fromString
+
+instance Buildable Path where
+    build (Path segs) = bprint build (fold . Seq.intersperse "/" $ segs <&> \(PathSegment t) -> t)
+
+-- | Convert a sequence of relative paths into a sequence of absolute paths:
+--   @pathSequence "base" ["a", "b", "c"] = ["base" <> "a", "base" <> "a" <> "b", "base" <> "a" <> "b" <> "c"]
+pathSequence ::
+       Path -- ^ base path
+    -> OldestFirst NE Path -- ^ relative paths
+    -> OldestFirst NE Path -- ^ absolute paths
+pathSequence basePath = over _OldestFirst $
+    NE.fromList . fmap (mappend basePath . mconcat) . NE.tail . NE.inits
 
 type BlockchainForest a = Map PathSegment (BlockchainTree a)
 
@@ -205,6 +241,7 @@ data BlockApplyResult
                             * block is not a continuation of the chain
                             * block signature is invalid
                             * etc -}
+    deriving (Show)
 
 instance IsBlockEventFailure BlockApplyResult where
     isBlockEventFailure = \case
@@ -214,7 +251,7 @@ instance IsBlockEventFailure BlockApplyResult where
 data BlockEventApply' blund = BlockEventApply
     { _beaInput    :: !(OldestFirst NE blund)
     , _beaOutValid :: !BlockApplyResult
-    } deriving (Functor, Foldable)
+    } deriving (Show, Functor, Foldable)
 
 makeLenses ''BlockEventApply'
 
@@ -230,6 +267,7 @@ data BlockRollbackResult
                                 * rollback limit exceeded
                                 * genesis block rollback
                                 * etc -}
+    deriving (Show)
 
 instance IsBlockEventFailure BlockRollbackResult where
     isBlockEventFailure = \case
@@ -239,7 +277,7 @@ instance IsBlockEventFailure BlockRollbackResult where
 data BlockEventRollback' blund = BlockEventRollback
     { _berInput    :: !(NewestFirst NE blund)
     , _berOutValid :: !BlockRollbackResult
-    } deriving (Functor, Foldable)
+    } deriving (Show, Functor, Foldable)
 
 makeLenses ''BlockEventRollback'
 
@@ -265,11 +303,20 @@ data SnapshotOperation
     are found, throw an error. -}
     deriving (Show)
 
+instance Buildable SnapshotOperation where
+      build = bprint shown
+
 data BlockEvent' blund
-    = BlkEvApply (BlockEventApply' blund)
-    | BlkEvRollback (BlockEventRollback' blund)
-    | BlkEvSnap SnapshotOperation
-    deriving (Functor, Foldable)
+      = BlkEvApply (BlockEventApply' blund)
+      | BlkEvRollback (BlockEventRollback' blund)
+      | BlkEvSnap SnapshotOperation
+      deriving (Show, Functor, Foldable)
+
+instance Buildable blund => Buildable (BlockEvent' blund) where
+    build = \case
+        BlkEvApply ev -> bprint ("Apply blocks: "%listJson) (getOldestFirst $ ev ^. beaInput)
+        BlkEvRollback ev -> bprint ("Rollback blocks: "%listJson) (getNewestFirst $ ev ^. berInput)
+        BlkEvSnap s -> bprint build s
 
 instance IsBlockEventFailure (BlockEvent' blund) where
     isBlockEventFailure = \case
@@ -280,7 +327,10 @@ instance IsBlockEventFailure (BlockEvent' blund) where
 type BlockEvent = BlockEvent' BlundDefault
 
 newtype BlockScenario' blund = BlockScenario [BlockEvent' blund]
-    deriving (Functor, Foldable)
+    deriving (Show, Functor, Foldable)
+
+instance Buildable blund => Buildable (BlockScenario' blund) where
+    build (BlockScenario xs) = bprint listJson xs
 
 type BlockScenario = BlockScenario' BlundDefault
 
@@ -430,12 +480,12 @@ genBlockEvent begp = do
         -- 'NE.fromList' assumes that 'len >= 1', which holds because we require
         -- 'begpBlockCountMax >= 1'.
         return $ OldestFirst . NE.fromList . take len $
-            iterate (<> Path (Seq.singleton "next")) pathStart
+            iterate (<> "next") pathStart
     -- Fail with rollback. In the starting state it's easy,
     -- because any rollback will fail when we don't have any
     -- blocks yet.
     genBlockStartingState (IsFailure True) (IsRollback True) = do
-        blockIndices <- genBlockIndices (Path (Seq.singleton "first"))
+        blockIndices <- genBlockIndices "first"
         let
             ev = BlkEvRollback $ BlockEventRollback
                 { _berInput    = toNewestFirst blockIndices
@@ -447,9 +497,9 @@ genBlockEvent begp = do
     -- the only way to do this is to generate a sequence of blocks
     -- invalid by itself.
     genBlockStartingState (IsFailure True) (IsRollback False) = do
-        blockIndices <- genBlockIndices (Path (Seq.fromList ["first", "next"]))
+        blockIndices <- genBlockIndices ("first" <> "next")
         let
-            blkZeroth = Path (Seq.singleton "first") :| []
+            blkZeroth = "first" :| []
             blockIndices' =
                 -- Those block indices are broken by construction
                 -- because we append the 0-th block to the end.
@@ -469,7 +519,7 @@ genBlockEvent begp = do
     -- there are no blocks, so we will generate a block apply
     -- event in both cases.
     genBlockStartingState (IsFailure False) (IsRollback _) = do
-        blockIndices <- genBlockIndices (Path (Seq.singleton "first"))
+        blockIndices <- genBlockIndices "first"
         let
             ev = BlkEvApply $ BlockEventApply
                 { _beaInput    = blockIndices
@@ -493,7 +543,7 @@ genBlockEvent begp = do
                         let
                             gbes = GbesExpectedFailure
                             ev = BlkEvRollback $ BlockEventRollback
-                                { _berInput    = NewestFirst $ Path (Seq.singleton "unrelated") :| []
+                                { _berInput    = NewestFirst $ "unrelated" :| []
                                 , _berOutValid = BlockRollbackFailure
                                 }
                         return (Just ev, gbes)
@@ -525,7 +575,7 @@ genBlockEvent begp = do
             AftApplyBad -> do
                 -- Attempt to apply an invalid sequence of blocks.
                 let tip = NE.last (getOldestFirst blockchain)
-                blockIndices <- genBlockIndices (tip <> Path (Seq.singleton "next"))
+                blockIndices <- genBlockIndices (tip <> "next")
                 let
                     blockIndices' =
                         -- Those block indices are broken by construction
@@ -546,8 +596,8 @@ genBlockEvent begp = do
                 let
                     tip  = NE.last (getOldestFirst blockchain)
                     -- The amount of blocks to skip. One is enough.
-                    skip = 1
-                blockIndices <- genBlockIndices (tip <> Path (Seq.replicate (1 + skip) "next"))
+                    skip = (1 :: Int)
+                blockIndices <- genBlockIndices (tip <> Smg.stimes (1+skip) "next")
                 let
                     ev = BlkEvApply $ BlockEventApply
                         { _beaInput    = blockIndices
@@ -574,7 +624,7 @@ genBlockEvent begp = do
     -- Success without rollback (with apply).
     genBlockInBlockchain blockchain (IsFailure False) (IsRollback False) = do
         let tip = NE.last (getOldestFirst blockchain)
-        blockIndices <- genBlockIndices (tip <> Path (Seq.singleton "next"))
+        blockIndices <- genBlockIndices (tip <> "next")
         let
             ev = BlkEvApply $ BlockEventApply
                 { _beaInput = blockIndices
@@ -582,19 +632,6 @@ genBlockEvent begp = do
                 }
             gbes = GbesBlockchain (blockchain Smg.<> blockIndices)
         return (Just ev, gbes)
-
-splitAtNewestFirst ::
-    forall a.
-       Int
-    -> NewestFirst NE a
-    -> (NewestFirst [] a, NewestFirst [] a)
-splitAtNewestFirst = coerce (NE.splitAt @a)
-
-nonEmptyOldestFirst ::
-    forall a.
-       OldestFirst [] a
-    -> Maybe (OldestFirst NE a)
-nonEmptyOldestFirst = coerce (nonEmpty @a)
 
 {- NOTE: Reordering corner cases
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -611,3 +648,50 @@ To avoid dealing with this, we append one more block. The downside is that
 appending this block may cause the sequence to be longer than 'blockIndexMax'.
 
 -}
+
+newtype CheckCount = CheckCount Word
+    deriving (Eq, Ord, Show, Num)
+
+blkEvTip :: BlockEvent -> Maybe HeaderHash
+blkEvTip = \case
+    BlkEvApply bea -> Just $
+        (headerHash . NE.head . getNewestFirst . toNewestFirst . view beaInput) bea
+    BlkEvRollback ber -> Just $
+        (headerHash . view prevBlockL . NE.head . getOldestFirst . toOldestFirst . view berInput) ber
+    _ -> Nothing
+
+-- | Empty: hash snapshot unavailable
+--   Zero: hash snapshot available but unused
+--   Other: hash snapshot was used N times
+type HhStatusMap = Map HeaderHash CheckCount
+
+hhSnapshotId :: HeaderHash -> SnapshotId
+hhSnapshotId = SnapshotId . sformat hashHexF
+
+-- | Whenever the resulting tips of apply/rollback operations coincide,
+-- add a snapshot equivalence comparison.
+enrichWithSnapshotChecking :: BlockScenario -> (BlockScenario, CheckCount)
+enrichWithSnapshotChecking (BlockScenario bs) = (BlockScenario bs', checkCount)
+  where
+    checkCount = sum (hhStatusEnd :: HhStatusMap)
+    (hhStatusEnd, revBs') = go Map.empty [] bs
+    bs' = reverse revBs'
+    -- NB. 'go' is tail-recursive.
+    go hhStatusSoFar revNewBs = \case
+        [] -> (hhStatusSoFar, revNewBs)
+        (ev:evs) -> case blkEvTip ev of
+            Nothing -> go hhStatusSoFar (ev:revNewBs) evs
+            Just tipHh -> case Map.lookup tipHh hhStatusSoFar of
+                Nothing ->
+                    let
+                        snapSave = BlkEvSnap (SnapshotSave (hhSnapshotId tipHh))
+                        needSnapSave =
+                            -- We tie the know here to determine whether to actually emit
+                            -- the command to save the snapshot.
+                            Map.findWithDefault 0 tipHh hhStatusEnd > 0
+                        appendSnapSave = if needSnapSave then (snapSave:) else identity
+                    in
+                        go (Map.insert tipHh 0 hhStatusSoFar) (appendSnapSave $ ev:revNewBs) evs
+                Just k ->
+                    let snapEq = BlkEvSnap (SnapshotEq (hhSnapshotId tipHh))
+                    in go (Map.insert tipHh (1+k) hhStatusSoFar) (snapEq:ev:revNewBs) evs
