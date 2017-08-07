@@ -2,8 +2,11 @@
 
 module Pos.Core.Context
        ( CoreConstants (..)
-       , HasCoreConstants (..)
        , ccBlkSecuriryParam
+       , staticCoreConstants
+
+       , HasCoreConstants (..)
+       , staticCoreConstantsG
        , blkSecurityParamM
 
        , HasPrimaryKey(..)
@@ -16,11 +19,12 @@ module Pos.Core.Context
 
 import           Universum
 
-import           Control.Lens     (Getter, makeLenses)
+import           Control.Lens       (Getter, makeLenses, to)
 
-import           Pos.Core.Address (addressHash, makePubKeyAddress)
-import           Pos.Core.Types   (Address, BlockCount, StakeholderId)
-import           Pos.Crypto       (PublicKey, SecretKey, toPublic)
+import           Pos.Core.Address   (addressHash, makePubKeyAddress)
+import           Pos.Core.Constants (staticBlkSecurityParam)
+import           Pos.Core.Types     (Address, BlockCount, StakeholderId)
+import           Pos.Crypto         (PublicKey, SecretKey, toPublic)
 
 -- | Core constants. They should be really constant and never change.
 data CoreConstants = CoreConstants
@@ -29,11 +33,22 @@ data CoreConstants = CoreConstants
 
 makeLenses ''CoreConstants
 
+-- | Hardcoded core constants.
+staticCoreConstants :: CoreConstants
+staticCoreConstants =
+    CoreConstants {_ccBlkSecuriryParam = staticBlkSecurityParam}
+
 -- | Access to core constants. The access is read-only to ensure that
 -- the constants are really constants (i. e. can't be changed).
 class HasCoreConstants ctx where
     coreConstantsG :: Getter ctx CoreConstants
 
+-- | Convenient 'Getter' which can be used to implement
+-- 'HasCoreConstants' using static constants.
+staticCoreConstantsG :: Getter __ CoreConstants
+staticCoreConstantsG = to (const staticCoreConstants)
+
+-- | Get block security param in monadic context.
 blkSecurityParamM :: (HasCoreConstants ctx, MonadReader ctx m) => m BlockCount
 blkSecurityParamM = view (coreConstantsG . ccBlkSecuriryParam)
 
