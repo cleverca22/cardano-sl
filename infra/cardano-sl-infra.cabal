@@ -120,6 +120,7 @@ library
                       , directory
                       , dns
                       , either
+                      , ekg-core
                       , ether >= 0.5
                       , exceptions
                       , filepath

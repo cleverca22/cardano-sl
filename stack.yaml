@@ -52,7 +52,7 @@ packages:
   extra-dep: true
 - location:
     git: https://github.com/serokell/time-warp-nt.git
-    commit: e1bc23f12c388301ceae4de53fe2d513057b62ec # master
+    commit: 4e7d49d1d5d723c674e834e48909f72a262d56b8 # feature/ekg-counters
   extra-dep: true
 # These two are needed for time-warp-nt
 - location:

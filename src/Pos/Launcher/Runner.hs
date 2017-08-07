@@ -105,7 +105,7 @@ runRealModeDo NodeResources {..} outSpecs action =
             jsonLogConfigFromHandle
             nrJLogHandle
 
-        oq <- liftIO $ initQueue ncNetworkConfig
+        oq <- liftIO $ initQueue ncNetworkConfig (Just nrEkgStore)
 
         runToProd jsonLogConfig oq $
           runServer (simpleNodeEndPoint nrTransport)

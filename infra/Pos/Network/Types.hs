@@ -27,6 +27,7 @@ module Pos.Network.Types
 
 import qualified Data.ByteString.Char8                 as BS.C8
 import           Data.IP                               (IPv4)
+import qualified Data.Text                             as T
 import           Network.Broadcast.OutboundQueue       (OutboundQ)
 import qualified Network.Broadcast.OutboundQueue       as OQ
 import           Network.Broadcast.OutboundQueue.Types
@@ -35,6 +36,7 @@ import           Pos.Network.DnsDomains                (DNSError, DnsDomains (..
 import qualified Pos.Network.DnsDomains                as DnsDomains
 import           Pos.Network.Yaml                      (NodeName (..))
 import           Pos.Util.TimeWarp                     (addressToNodeId)
+import qualified System.Metrics                        as Monitoring
 import           Universum                             hiding (show)
 import           GHC.Show                              (Show(..))
 
@@ -180,9 +182,13 @@ data Bucket =
 -- to (some of) those peers.
 initQueue :: FormatMsg msg
           => NetworkConfig kademlia
+          -> Maybe Monitoring.Store -- ^ EKG store (if used)
           -> IO (OutboundQ msg NodeId Bucket)
-initQueue NetworkConfig{..} = do
+initQueue NetworkConfig{..} mStore = do
     oq <- OQ.new selfName enqueuePolicy dequeuePolicy failurePolicy
+    case mStore of
+      Nothing    -> return () -- EKG store not used
+      Just store -> OQ.registerQueueMetrics oq store
 
     case ncTopology of
       TopologyLightWallet peers -> do
@@ -207,7 +213,7 @@ initQueue NetworkConfig{..} = do
     return oq
   where
     ourNodeType   = topologyNodeType ncTopology
-    selfName      = fromMaybe "self" ncSelfName
+    selfName      = maybe "self" (\(NodeName nm) -> T.unpack nm) ncSelfName
     enqueuePolicy = OQ.defaultEnqueuePolicy ourNodeType
     dequeuePolicy = OQ.defaultDequeuePolicy ourNodeType
     failurePolicy = OQ.defaultFailurePolicy ourNodeType
