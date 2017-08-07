@@ -84,6 +84,7 @@ library
                      , mono-traversable
                      , mtl
                      , node-sketch
+                     , random
                      , rocksdb-haskell >= 1.0.0
                      , serokell-util
                      , stm
