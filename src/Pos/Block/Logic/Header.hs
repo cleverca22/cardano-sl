@@ -29,8 +29,7 @@ import           Pos.Block.Core            (BlockHeader)
 import           Pos.Block.Logic.Util      (lcaWithMainChain)
 import           Pos.Block.Pure            (VerifyHeaderParams (..), verifyHeader,
                                             verifyHeaders)
-import           Pos.Constants             (blkSecurityParam, genesisHash,
-                                            recoveryHeadersMessage)
+import           Pos.Constants             (genesisHash, recoveryHeadersMessage)
 import           Pos.Core                  (BlockCount, EpochOrSlot (..), HeaderHash,
                                             SlotId (..), difficultyL, epochOrSlotG,
                                             getChainDifficulty, getEpochOrSlot,
@@ -203,13 +202,14 @@ classifyHeaders inRecovery headers = do
                         getChainDifficulty (lca ^. difficultyL)
         lcaChild <- MaybeT $ pure $
             find (\bh -> bh ^. prevBlockL == headerHash lca) headers
+        blkSecurityParam <- blkSecurityParamM
         pure $ if
             | hash lca == hash tipHeader -> CHsValid lcaChild
             | depthDiff < 0 -> error "classifyHeaders@depthDiff is negative"
             | depthDiff > blkSecurityParam ->
                   CHsUseless $
                   sformat ("Difficulty difference of (tip,lca) is "%int%
-                           " which is more than blkSecurityParam = "%int)
+                           " which is greater than blkSecurityParam = "%int)
                           depthDiff blkSecurityParam
             | otherwise -> CHsValid lcaChild
 
@@ -279,6 +279,7 @@ getHeadersOlderExp
     => Maybe HeaderHash -> m (OldestFirst NE HeaderHash)
 getHeadersOlderExp upto = do
     tip <- GS.getTip
+    blkSecurityParam <- blkSecurityParamM
     let upToReal = fromMaybe tip upto
     -- Using 'blkSecurityParam + 1' because fork can happen on k+1th one.
     (allHeaders :: NewestFirst [] (BlockHeader ssc)) <-
