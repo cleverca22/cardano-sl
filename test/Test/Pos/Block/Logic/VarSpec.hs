@@ -226,7 +226,7 @@ genSuccessWithForks = do
         let
             forkLen    = length rollbackFork
             wiggleRoom = fromIntegral blkSecurityParam - forkLen
-        stopFork <- byChance 0.1
+        stopFork <- byChance (if forkLen > 0 then 0.1 else 0)
         if stopFork
             then whenJust (nonEmptyNewestFirst rollbackFork) $
                  emitBlockRollback BlockRollbackSuccess
