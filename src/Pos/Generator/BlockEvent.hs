@@ -95,7 +95,7 @@ instance IsString Path where
     fromString = Path . Seq.singleton . fromString
 
 instance Buildable Path where
-    build (Path segs) = bprint build (fold . Seq.intersperse "/" $ segs <&> \(PathSegment t) -> t)
+    build (Path segs) = bprint build (fold . intersperse "/" . toList $ segs <&> \(PathSegment t) -> t)
 
 -- | Convert a sequence of relative paths into a sequence of absolute paths:
 --   @pathSequence "base" ["a", "b", "c"] = ["base" <> "a", "base" <> "a" <> "b", "base" <> "a" <> "b" <> "c"]
