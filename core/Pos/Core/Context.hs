@@ -2,7 +2,7 @@
 
 module Pos.Core.Context
        ( CoreConstants (..)
-       , HasCoreConstants
+       , HasCoreConstants (..)
        , ccBlkSecuriryParam
        , blkSecurityParamM
 
