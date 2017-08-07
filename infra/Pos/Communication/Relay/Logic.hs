@@ -354,12 +354,12 @@ data InvReqDataFlowLog =
 $(deriveJSON defaultOptions ''InvReqDataFlowLog)
 
 invReqDataFlowNeighborsTK
-    :: forall key contents m.
+    :: forall key contents ctx m.
        ( Message (InvOrData (Tagged contents key) contents)
        , Message (ReqMsg (Tagged contents key))
        , Buildable key
        , Typeable contents
-       , MonadRelay m
+       , MonadRelay ctx m
        , Bi (InvOrData (Tagged contents key) contents)
        , Bi (ReqMsg (Tagged contents key))
        )
@@ -449,7 +449,7 @@ invReqDataFlowDo what key dt peer conv = do
                 what peer key
 
 dataFlow
-    :: forall contents m.
+    :: forall contents ctx m.
        ( Message (DataMsg contents)
        , Bi (DataMsg contents)
        , Buildable contents
