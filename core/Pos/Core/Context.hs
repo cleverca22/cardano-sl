@@ -4,7 +4,7 @@ module Pos.Core.Context
        ( CoreConstants (..)
        , HasCoreConstants
        , ccBlkSecuriryParam
-       , blkSecuriryParamM
+       , blkSecurityParamM
 
        , HasPrimaryKey(..)
        , getOurSecretKey
@@ -34,8 +34,8 @@ makeLenses ''CoreConstants
 class HasCoreConstants ctx where
     coreConstantsG :: Getter ctx CoreConstants
 
-blkSecuriryParamM :: (HasCoreConstants ctx, MonadReader ctx m) => m BlockCount
-blkSecuriryParamM = view (coreConstantsG . ccBlkSecuriryParam)
+blkSecurityParamM :: (HasCoreConstants ctx, MonadReader ctx m) => m BlockCount
+blkSecurityParamM = view (coreConstantsG . ccBlkSecuriryParam)
 
 -- | Access to primary key of the node.
 class HasPrimaryKey ctx where
