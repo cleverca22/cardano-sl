@@ -87,44 +87,53 @@ genTestParams = do
     let _tpAllSecrets = AllSecrets invSecretsMap
     -- Total stake inside one group. Maximum 10^10, minimum 10^8, but
     -- is always divisible by 10^7.
-    totalStakeGroup <-
-        (`unsafeMulCoin` 10000000) . (`divCoin` groupsNumber) . mkCoin <$>
-        choose (10, 1000)
+    r1 <- choose (1000::Word64, 10000)
+    let totalStakeGroup = (`unsafeMulCoin` baseN) $ mkCoin r1
+
     -- It's essential to use 'toList invSecretsMap' instead of
     -- 'secretKeys' here, because we rely on the order further. Later
     -- we can add ability to extend 'TestParams' or context.
     addressesAndDistrs <-
-        mapM
-            (genAddressesAndDistrs totalStakeGroup (toList invSecretsMap))
-            (enumerate allRichmenComponents)
+        mapM (genAddressesAndDistrs r1 totalStakeGroup (toList invSecretsMap))
+             (enumerate allRichmenComponents)
     let _tpStakeDistributions = snd <$> addressesAndDistrs
     let _tpGenesisContext = genesisContextImplicit addressesAndDistrs
     return TestParams {..}
   where
+    baseN :: Integral i => i
+    baseN = 1000000
     groupsNumber = length allRichmenComponents
     genAddressesAndDistrs ::
-           Coin
+           Word64
+        -> Coin
         -> [SecretKey]
         -> (GroupId, Lrc.SomeRichmenComponent)
         -> Gen ([Address], StakeDistribution)
-    genAddressesAndDistrs totalStakeGroup allSecretKeys (i, Lrc.SomeRichmenComponent proxy) = do
+    genAddressesAndDistrs r1 totalStakeGroup allSecretKeys (i, Lrc.SomeRichmenComponent proxy) = do
         let secretKeysRange = subList (4 * i, 4 * (i + 1)) allSecretKeys
         let skToAddr = makePubKeyAddress . toPublic
         let addresses = map skToAddr secretKeysRange
         let totalStake = totalStakeGroup `unsafeMulCoin` groupsNumber
         let thresholdCoin =
                 Lrc.rcInitialThreshold proxy `applyCoinPortionUp` totalStake
-        let poorStake =
-                unsafeIntegerToCoin $ last $
-                takeWhile (< (fromIntegral $ unsafeGetCoin thresholdCoin)) $ iterate (*2) 10
+        let thresholdN = unsafeGetCoin thresholdCoin
+            -- m1
+        let poorStakeN = thresholdN `div` baseN
+            -- P1
+        let poorStake = mkCoin baseN `unsafeMulCoin` poorStakeN
         let richStake1 =
                 unsafeHead $ dropWhile (<= thresholdCoin) $
                 iterate (`unsafeAddCoin` poorStake) poorStake
-        let genRichStake prev =
-                unsafeMulCoin prev <$> choose (2::Int, 5)
-        richStake2 <- genRichStake richStake1
-        richStake3 <- genRichStake richStake2
+        let k1 = (r1 - poorStakeN) `div` 3
+        [richStake1,richStake2] <-
+            replicateM 2 $
+            (`unsafeMulCoin` (baseN :: Int)) . mkCoin <$>
+            choose (poorStakeN, k1)
+        let richStake3 =
+                totalStake `unsafeSubCoin`
+                (foldr1 unsafeAddCoin [poorStake,richStake1,richStake2])
         let stakes = [poorStake, richStake1, richStake2, richStake3]
+        !() <- traceShowM totalStake
         !() <- traceShowM thresholdCoin
         !() <- traceShowM stakes
         case richStake3 >= thresholdCoin of
@@ -178,8 +187,11 @@ checkRichmen :: BlockProperty ()
 -- in 'allRichmenComponents'. Unfortunately, I don't know how to
 -- do it better without spending too much time on it (@gromak).
 checkRichmen = do
+    !() <- traceM ("Checking SSC" :: Text)
     checkRichmenStakes 0 =<< getRichmen (lift . Lrc.getRichmenSsc)
+    !() <- traceM ("Checking US" :: Text)
     checkRichmenFull 1 =<< getRichmen (lift . Lrc.getRichmenUS)
+    !() <- traceM ("Checking DLG" :: Text)
     checkRichmenSet 2 =<< getRichmen (lift . Lrc.getRichmenDlg)
   where
     relevantStakeholders :: GroupId -> BlockProperty [StakeholderId]
@@ -233,8 +245,8 @@ checkRichmen = do
         -- It's safe because there must be 4 stakeholders by construction.
         poorGuy <- unsafeHead <$> relevantStakeholders i
         poorGuyStake <- lift $ fromMaybe minBound <$> GS.getRealStake poorGuy
-        totalStake <- lift GS.getRealTotalStake
-        unless (isNothing $ richmen ^. at poorGuy) $
+        unless (isNothing $ richmen ^. at poorGuy) $ do
+            totalStake <- lift GS.getRealTotalStake
             stopProperty $ sformat
                 ("Poor guy was considered rich by LRC! His real stake is "
                  %coinF%", real total stake is "%coinF)
