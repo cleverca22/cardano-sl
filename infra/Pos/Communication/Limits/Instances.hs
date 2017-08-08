@@ -15,7 +15,8 @@ import qualified Pos.Communication.Constants    as Const
 import           Pos.Communication.Limits.Types (Limit (..), MessageLimited (..),
                                                  MessageLimitedPure (..))
 import           Pos.Communication.Types.Relay  (DataMsg (..), InvMsg, InvOrData,
-                                                 MempoolMsg (..), ReqMsg)
+                                                 MempoolMsg (..), ReqMsg, ResMsg,
+                                                 ReqOrRes)
 
 ----------------------------------------------------------------------------
 -- Instances of MessageLimited for the relay types.
@@ -23,6 +24,7 @@ import           Pos.Communication.Types.Relay  (DataMsg (..), InvMsg, InvOrData
 
 instance MessageLimited (InvMsg key)
 instance MessageLimited (ReqMsg key)
+instance MessageLimited (ResMsg key)
 instance MessageLimited (MempoolMsg tag)
 
 instance MessageLimited (DataMsg contents)
@@ -33,6 +35,13 @@ instance MessageLimited (DataMsg contents)
         -- 1 byte is added because of `Either`
         return $ Limit (1 + (invLim `max` dataLim))
 
+instance MessageLimited (ReqOrRes key) where
+    getMsgLenLimit _ = do
+        Limit reqLim <- getMsgLenLimit $ Proxy @(ReqMsg key)
+        Limit resLim <- getMsgLenLimit $ Proxy @(ResMsg key)
+        -- 1 byte is added because of `Either`
+        return $ Limit (1 + (reqLim `max` resLim))
+
 ----------------------------------------------------------------------------
 -- Instances of MessageLimitedPure for the relay types.
 ----------------------------------------------------------------------------
@@ -42,6 +51,11 @@ instance MessageLimitedPure (InvMsg key) where
 
 instance MessageLimitedPure (ReqMsg key) where
     msgLenLimit = Limit Const.maxReqSize
+
+instance MessageLimitedPure (ResMsg key) where
+    -- It's a ResMsg key with an extra bool.
+    -- But is does adding a bool field increase the serialized size by 1 byte?
+    msgLenLimit = Limit (Const.maxReqSize + 1)
 
 instance MessageLimitedPure (MempoolMsg tag) where
     msgLenLimit = Limit Const.maxMempoolMsgSize

@@ -4,6 +4,8 @@
 module Pos.Communication.Types.Relay
        ( InvMsg (..)
        , ReqMsg (..)
+       , ResMsg (..)
+       , ReqOrRes
        , MempoolMsg (..)
        , DataMsg (..)
        , InvOrData
@@ -44,6 +46,16 @@ type InvOrData key contents = Either (InvMsg key) (DataMsg contents)
 
 -- | InvOrData with key tagged by contents
 type InvOrDataTK key contents = InvOrData (Tagged contents key) contents
+
+-- | Response to a 'ReqMsg' indicating whether it was successfully processed.
+data ResMsg key = ResMsg
+    { resKey :: !key
+    , resOk  :: !Bool
+    -- ^ True if the request was successfully processed.
+    }
+    deriving (Show, Eq)
+
+type ReqOrRes key = Either (ReqMsg key) (ResMsg key)
 
 instance (Buildable contents) =>
          Buildable (DataMsg contents) where

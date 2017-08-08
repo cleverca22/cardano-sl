@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Pos.Communication.Message
        ( MessagePart (..)
        ) where
@@ -11,7 +13,7 @@ import           Pos.Block.Network.Types          (MsgBlock, MsgGetBlocks, MsgGe
                                                    MsgHeaders)
 import           Pos.Communication.MessagePart    (MessagePart (..))
 import           Pos.Communication.Types.Relay    (DataMsg, InvMsg, InvOrData, MempoolMsg,
-                                                   ReqMsg)
+                                                   ReqMsg, ReqOrRes)
 import           Pos.Communication.Types.Protocol (MsgSubscribe)
 import           Pos.Delegation.Types             (ProxySKLightConfirmation)
 import           Pos.Ssc.GodTossing.Types.Message (MCCommitment, MCOpening, MCShares,
@@ -121,3 +123,11 @@ instance (MessagePart contents) =>
                   -> Proxy contents
         contentsM _ = Proxy
     formatMessage _ = "Inventory/Data"
+
+instance (MessagePart key) =>
+         Message (ReqOrRes key) where
+    messageName p = varIntMName 123 <> pMessageName (keyM p)
+      where
+        keyM :: Proxy (ReqOrRes key) -> Proxy key
+        keyM _ = Proxy
+    formatMessage _ = "Request/Response"

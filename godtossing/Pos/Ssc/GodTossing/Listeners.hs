@@ -25,7 +25,7 @@ import           Pos.Communication.MessagePart         (MessagePart)
 import           Pos.Communication.Relay               (DataMsg, InvOrData,
                                                         InvReqDataParams (..),
                                                         MempoolParams (NoMempool),
-                                                        Relay (..), ReqMsg)
+                                                        Relay (..), ReqMsg, ReqOrRes)
 import           Pos.Core                              (StakeholderId, addressHash)
 import           Pos.Security.Util                     (shouldIgnorePkAddress)
 import           Pos.Ssc.Class.Listeners               (SscListenersClass (..))
@@ -99,6 +99,7 @@ sscRelay
        , Bi (DataMsg contents)
        , MessagePart contents
        , Message (InvOrData (Tagged contents StakeholderId) contents)
+       , Message (ReqOrRes (Tagged contents StakeholderId))
        , Message (ReqMsg (Tagged contents StakeholderId))
        )
     => GtTag

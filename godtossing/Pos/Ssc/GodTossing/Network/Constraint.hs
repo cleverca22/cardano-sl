@@ -11,7 +11,7 @@ import           Node.Message.Class               (Message)
 
 import           Pos.Communication.Limits.Types   (MessageLimited)
 import           Pos.Communication.MessagePart    (MessagePart)
-import           Pos.Communication.Types.Relay    (DataMsg, InvOrData, ReqMsg)
+import           Pos.Communication.Types.Relay    (DataMsg, InvOrData, ReqMsg, ReqOrRes)
 import           Pos.Core                         (StakeholderId)
 import           Pos.Ssc.GodTossing.Types.Message (MCCommitment, MCOpening, MCShares,
                                                    MCVssCertificate)
@@ -39,4 +39,9 @@ type GtMessageConstraints =
         , ReqMsg (Tagged MCOpening        StakeholderId)
         , ReqMsg (Tagged MCShares         StakeholderId)
         , ReqMsg (Tagged MCVssCertificate StakeholderId) ]
+    , Each '[Message]
+        [ ReqOrRes (Tagged MCCommitment     StakeholderId)
+        , ReqOrRes (Tagged MCOpening        StakeholderId)
+        , ReqOrRes (Tagged MCShares         StakeholderId)
+        , ReqOrRes (Tagged MCVssCertificate StakeholderId) ]
     )
