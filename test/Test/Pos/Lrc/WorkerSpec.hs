@@ -113,7 +113,7 @@ genTestParams = do
         let poorStake = thresholdCoin `unsafeSubCoin` mkCoin 1
         -- Let's add small stake to two richmen just for fun.
         let genSmallRichStake =
-                unsafeAddCoin thresholdCoin . mkCoin <$> choose (0, 10)
+                unsafeAddCoin "15" thresholdCoin . mkCoin <$> choose (0, 10)
         richStake1 <- genSmallRichStake
         richStake2 <- genSmallRichStake
         let richStake3 =

@@ -45,12 +45,12 @@ findDelegationStakes isIssuer stakeResolver t = do
         maybe (pure richmen) (onItem richmen >=> step) v
     onItem (old, new) (delegate, issuers) = do
         sumIssuers <-
-            foldM (\cr id -> (unsafeAddCoin cr) <$> safeBalance id)
+            foldM (\cr id -> (unsafeAddCoin "18" cr) <$> safeBalance id)
                   (mkCoin 0)
                   issuers
         isIss <- lift $ isIssuer delegate
         curStake <- if isIss then pure sumIssuers
-                    else (unsafeAddCoin sumIssuers) <$> safeBalance delegate
+                    else (unsafeAddCoin "19" sumIssuers) <$> safeBalance delegate
         let newRichmen =
               if curStake >= t then HM.insert delegate curStake new
               else new

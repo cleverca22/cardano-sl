@@ -19,8 +19,8 @@ import qualified Data.HashSet                as HS
 import           Data.List                   (delete)
 import qualified Data.List.NonEmpty          as NE
 import           Formatting                  (build, sformat, (%))
-import           System.Wlog                 (WithLogger, logError, runNamedPureLog,
-                                              usingLoggerName)
+import           System.Wlog                 (WithLogger, logError, logWarning,
+                                              runNamedPureLog, usingLoggerName)
 
 import           Pos.Core                    (Address, Coin, EpochIndex, HeaderHash,
                                               Timestamp, coinToInteger, mkCoin,
@@ -104,7 +104,8 @@ eProcessTx curEpoch tx@(id, aux) extra = do
     putTxExtraWithHistory id extra $ getTxRelatedAddrs aux undo
     let balanceUpdate = getBalanceUpdate aux undo
     -- TODO: [CSM-245] do not discard logged errors
-    fmap fst $ usingLoggerName "eProcessTx" $ runNamedPureLog $
+    fmap fst $ usingLoggerName "eProcessTx" $ runNamedPureLog $ do
+        !() <- traceM ("--APPLYING TX " <> (pretty aux :: Text) <> " WITH BALANCE UPDATE " <> show balanceUpdate)
         updateAddrBalances balanceUpdate
 
 -- | Get rid of invalid transactions.
@@ -128,9 +129,9 @@ eNormalizeToil curEpoch txs = mapM_ normalize ordered
 data BalanceUpdate = BalanceUpdate
     { minusBalance :: [(Address, Coin)]
     , plusBalance  :: [(Address, Coin)]
-    }
+    } deriving Show
 
-data Sign = Plus | Minus
+data Sign = Plus | Minus deriving Show
 
 modifyAddrHistory
     :: MonadTxExtra m
@@ -208,14 +209,15 @@ combineBalanceUpdates BalanceUpdate {..} =
                  | otherwise = Plus
         in (sign, coin)
 
-
 updateAddrBalances :: (MonadTxExtra m, WithLogger m) => BalanceUpdate -> m ()
-updateAddrBalances (combineBalanceUpdates -> updates) = mapM_ updater updates
+updateAddrBalances (combineBalanceUpdates -> updates) = do
+    !() <- traceShowM updates
+    mapM_ updater updates
   where
     updater :: (MonadTxExtra m, WithLogger m) => (Address, (Sign, Coin)) -> m ()
     updater (addr, (Plus, coin)) = do
         currentBalance <- fromMaybe (mkCoin 0) <$> getAddrBalance addr
-        let newBalance = unsafeAddCoin currentBalance coin
+        let newBalance = unsafeAddCoin "4" currentBalance coin
         putAddrBalance addr newBalance
     updater (addr, (Minus, coin)) = do
         maybeBalance <- getAddrBalance addr

@@ -30,7 +30,7 @@ filterUtxoByAddrs addrs =
     in  M.filter (`addrBelongsToSet` addrSet)
 
 utxoToAddressCoinPairs :: Utxo -> [(Address, Coin)]
-utxoToAddressCoinPairs utxo = combineWith unsafeAddCoin txOuts
+utxoToAddressCoinPairs utxo = combineWith (unsafeAddCoin "6") txOuts
   where
     combineWith :: (Eq a, Hashable a) => (b -> b -> b) -> [(a, b)] -> [(a, b)]
     combineWith func = HM.toList . HM.fromListWith func

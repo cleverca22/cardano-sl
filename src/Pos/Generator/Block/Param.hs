@@ -86,8 +86,8 @@ instance Show TxGenParams where
     show = formatToString build
 
 instance Default TxGenParams where
-    def = TxGenParams { _tgpTxCountRange = (0,5)
-                      , _tgpMaxOutputs = 4
+    def = TxGenParams { _tgpTxCountRange = (0,2)
+                      , _tgpMaxOutputs = 1
                       }
 
 -- | Parameters for blockchain generation. Probably they come from the outside.

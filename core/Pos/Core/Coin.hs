@@ -47,11 +47,11 @@ coinToInteger = toInteger . unsafeGetCoin
 {-# INLINE coinToInteger #-}
 
 -- | Only use if you're sure there'll be no overflow.
-unsafeAddCoin :: Coin -> Coin -> Coin
-unsafeAddCoin (unsafeGetCoin -> a) (unsafeGetCoin -> b)
+unsafeAddCoin :: Text -> Coin -> Coin -> Coin
+unsafeAddCoin t (unsafeGetCoin -> a) (unsafeGetCoin -> b)
     | res >= a && res >= b && res <= unsafeGetCoin (maxBound @Coin) = mkCoin res
     | otherwise =
-      error $ "unsafeAddCoin: overflow when summing " <> show a <> " + " <> show b
+      error $ "unsafeAddCoin: overflow when summing " <> show a <> " + " <> show b <> " tag " <> t
   where
     res = a+b
 {-# INLINE unsafeAddCoin #-}

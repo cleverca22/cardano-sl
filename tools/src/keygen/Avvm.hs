@@ -84,7 +84,7 @@ avvmAddrDistribution (utxo -> avvmData) =
 --                            | c <- runGen (replicateM 10 arbitrary)]
 
     balances :: HashMap Address Coin
-    balances = HM.fromListWith unsafeAddCoin $ do
+    balances = HM.fromListWith (unsafeAddCoin "12") $ do
         AvvmEntry{..} <- avvmData
         let addr = makeRedeemAddress aePublicKey
             adaCoin = unsafeIntegerToCoin aeCoin

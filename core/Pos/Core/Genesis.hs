@@ -135,7 +135,7 @@ genesisSplitBoot bootHolders0 c
               divMod cval addrsNum
           stakeCoins =
               replicate addrsNum (mkCoin d) &
-              ix remReceiver %~ unsafeAddCoin (mkCoin m)
+              ix remReceiver %~ unsafeAddCoin "13" (mkCoin m)
       in bootHolders `zip` stakeCoins
   where
     -- Person who will get the remainder in (2) case.

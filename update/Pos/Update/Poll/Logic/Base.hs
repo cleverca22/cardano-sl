@@ -406,11 +406,11 @@ voteToUProposalState voter stake decision ups@UndecidedProposalState {..} = do
             | otherwise = upsNegativeStake
     -- Then we recalculate stake adding stake of new vote.
         posStakeFinal
-            | decision = posStakeAfterRemove `unsafeAddCoin` stake
+            | decision = unsafeAddCoin "9" posStakeAfterRemove  stake
             | otherwise = posStakeAfterRemove
         negStakeFinal
             | decision = negStakeAfterRemove
-            | otherwise = negStakeAfterRemove `unsafeAddCoin` stake
+            | otherwise = unsafeAddCoin "10" negStakeAfterRemove stake
     -- We add a new vote with update state to set of votes.
     let newVotes = HM.insert voter combined upsVotes
     logDebug $

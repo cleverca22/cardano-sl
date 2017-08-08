@@ -213,6 +213,7 @@ genTxPayload = do
             mkWit sk txSigData = PkWitness (toPublic sk) (sign SignTxIn sk txSigData)
         let txAux = makeAbstractTx mkWit txInsWithSks txOutAuxs
         let tx = taTx txAux
+        putText $ pretty tx
         let txId = hash tx
 #ifdef WITH_EXPLORER
         res <- lift . lift $ runExceptT $ eTxProcessTransaction (txId, txAux)

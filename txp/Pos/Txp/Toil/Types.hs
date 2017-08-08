@@ -40,16 +40,17 @@ import           Universum
 
 import           Control.Lens               (makeLenses, makePrisms, makeWrapped)
 import           Data.Default               (Default, def)
+import qualified Data.HashMap.Strict        as HM
 import qualified Data.Map                   as M (toList)
-import qualified Data.HashMap.Strict as HM
 import           Data.Text.Lazy.Builder     (Builder)
 import           Formatting                 (Format, later)
 import           Serokell.Data.Memory.Units (Byte)
 import           Serokell.Util.Text         (mapBuilderJson)
 
-import           Pos.Core                   (Coin, StakeholderId, StakesMap, GenesisStakeholders (..),
-                                             unsafeAddCoin)
-import           Pos.Txp.Core               (TxAux, TxId, TxIn, TxOutAux, TxUndo, txOutStake)
+import           Pos.Core                   (Coin, GenesisStakeholders (..),
+                                             StakeholderId, StakesMap, unsafeAddCoin)
+import           Pos.Txp.Core               (TxAux, TxId, TxIn, TxOutAux, TxUndo,
+                                             txOutStake)
 import qualified Pos.Util.Modifier          as MM
 import           Pos.Util.Util              (getKeys)
 
@@ -67,7 +68,7 @@ type Utxo = Map TxIn TxOutAux
 utxoToStakes :: Utxo -> StakesMap
 utxoToStakes = foldl' putDistr mempty . M.toList
   where
-    plusAt hm (key, val) = HM.insertWith unsafeAddCoin key val hm
+    plusAt hm (key, val) = HM.insertWith (unsafeAddCoin "7") key val hm
     putDistr hm (_, toaux) = foldl' plusAt hm (txOutStake toaux)
 
 -- | Format 'Utxo' map for showing

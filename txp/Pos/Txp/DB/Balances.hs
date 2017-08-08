@@ -116,7 +116,7 @@ sanityCheckBalances
 sanityCheckBalances = do
     calculatedTotalStake <- runConduitRes $
         mapOutput snd (dbIterSource GStateDB (Proxy @BalanceIter)) .|
-        CL.fold unsafeAddCoin (mkCoin 0)
+        CL.fold (unsafeAddCoin "8") (mkCoin 0)
 
     totalStake <- getRealTotalStake
     let fmt = ("Wrong real total stake: \

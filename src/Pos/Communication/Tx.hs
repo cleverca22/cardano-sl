@@ -24,7 +24,7 @@ import           Pos.Client.Txp.Util        (TxCreateMode, TxError (..), createM
                                              createRedemptionTx, createTx,
                                              overrideTxDistrBoot)
 import           Pos.Communication.Methods  (sendTx)
-import           Pos.Communication.Protocol (OutSpecs, EnqueueMsg)
+import           Pos.Communication.Protocol (EnqueueMsg, OutSpecs)
 import           Pos.Communication.Specs    (createOutSpecs)
 import           Pos.Communication.Types    (InvOrDataTK)
 import           Pos.Crypto                 (RedeemSecretKey, SafeSigner, hash,
@@ -94,7 +94,7 @@ submitRedemptionTx
 submitRedemptionTx enqueue rsk output = do
     let redeemAddress = makeRedeemAddress $ redeemToPublic rsk
     utxo <- getOwnUtxo redeemAddress
-    let addCoin c = unsafeAddCoin c . txOutValue . toaOut
+    let addCoin c = unsafeAddCoin "5" c . txOutValue . toaOut
         redeemBalance = foldl' addCoin (mkCoin 0) utxo
         txOuts0 = one $
             TxOutAux {toaOut = TxOut output redeemBalance, toaDistr = []}

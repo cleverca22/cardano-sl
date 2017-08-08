@@ -145,7 +145,7 @@ sanityCheckUtxo expectedTotalStake = do
         throwM $ DBMalformed msg
   where
     foldAdd acc stakes =
-        acc `unsafeAddCoin` unsafeIntegerToCoin (sumCoins @[Coin] stakes)
+        unsafeAddCoin "13" acc (unsafeIntegerToCoin (sumCoins @[Coin] stakes))
 
 ----------------------------------------------------------------------------
 -- Keys

@@ -779,7 +779,7 @@ prepareTxRaw moneySource dstDistr fee = do
     allAddrs <- getMoneySourceAddresses moneySource
     let dstAccAddrsSet = S.fromList $ map fst $ toList dstDistr
         notDstAddrs = filter (\a -> not $ cwamId a `S.member` dstAccAddrsSet) allAddrs
-        coins = foldr1 unsafeAddCoin $ snd <$> dstDistr
+        coins = foldr1 (unsafeAddCoin "2") $ snd <$> dstDistr
     balancesInps <- mapM getWAddressBalance notDstAddrs
     -- We want to minimise a fee of the transaction,
     -- fee depends on a size of the transaction and
@@ -819,7 +819,7 @@ selectSrcAddresses
     -> m (Coin, NonEmpty (CWAddressMeta, Coin))
 selectSrcAddresses allAddrs outputCoins (TxFee fee) =
     either (throwM . RequestError) pure $
-    selectSrcAddressesDo (outputCoins `unsafeAddCoin` fee) allAddrs
+    selectSrcAddressesDo (unsafeAddCoin "3" outputCoins fee) allAddrs
   where
     selectSrcAddressesDo
         :: WalletWebMode m => Coin

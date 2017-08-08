@@ -87,7 +87,7 @@ refreshPoll slot proposals votes = do
             Just votesForUP -> foldM step (mkCoin 0) (toList votesForUP)
     step accum uv@UpdateVote {..}
         | not uvDecision = pure accum
-        | otherwise = unsafeAddCoin accum <$> evaluateVoteStake uv
+        | otherwise = unsafeAddCoin "11" accum <$> evaluateVoteStake uv
     propToVotes up =
         let id = hash up
         in (id, ) <$> votes ^. at id

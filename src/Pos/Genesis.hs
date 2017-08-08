@@ -81,7 +81,7 @@ bitcoinDistributionImpl ratio coins (coinIdx, coin) =
             then toAddNumMin
             else toAddNumMax
     toAddValMin = coin `divCoin` toAddNum
-    toAddValMax = coin `unsafeAddCoin`
+    toAddValMax = unsafeAddCoin "1" coin
                   (toAddValMin `unsafeMulCoin` (toAddNum - 1))
 
 -- | Given 'StakeDistribution', calculates a list containing amounts

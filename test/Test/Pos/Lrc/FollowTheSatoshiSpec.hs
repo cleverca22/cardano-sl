@@ -84,7 +84,7 @@ instance Arbitrary StakeAndHolder where
         let setAdr = S.fromList $ addrHash1 : addrHash2 : listAdr
             (myAddrHash, setUtxo) = S.deleteFindMin setAdr
             nAdr = S.size setUtxo
-            values = scanl1 unsafeAddCoin $ replicate nAdr coins
+            values = scanl1 (unsafeAddCoin "14") $ replicate nAdr coins
             toTxOutAux ah v = TxOutAux (TxOut (PubKeyAddress ah def) v) []
             utxoList =
                 (zipWith TxIn (replicate nAdr txId) [0 .. fromIntegral nAdr]) `zip`

@@ -91,7 +91,7 @@ spec = describe "Coin properties" $ do
 
 overflowInSumCausesError :: C.CoinPairOverflowSum -> Expectation
 overflowInSumCausesError =
-    shouldThrowException (uncurry C.unsafeAddCoin . C.get2CSum) anyErrorCall
+    shouldThrowException (uncurry (C.unsafeAddCoin "17") . C.get2CSum) anyErrorCall
 
 coinAdditionWorks :: C.SafeCoinPairSum -> Property
 coinAdditionWorks =
@@ -100,7 +100,7 @@ coinAdditionWorks =
             uncurry (+) .
             bimap C.unsafeGetCoin C.unsafeGetCoin .
             C.getPairSum
-    in longFunction .=. (uncurry C.unsafeAddCoin . C.getPairSum)
+    in longFunction .=. (uncurry (C.unsafeAddCoin "18") . C.getPairSum)
 
 underflowInSubCausesError :: C.CoinPairOverflowSub -> Expectation
 underflowInSubCausesError =
